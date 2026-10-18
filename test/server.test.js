@@ -4,7 +4,7 @@ import WebSocket from 'ws';
 import { once } from 'node:events';
 import { startServer, connectClient } from './helpers.js';
 import { loadConfig, ConfigError } from '../server/config.js';
-import { openDatabase, ListStore } from '../server/db.js';
+import { openDatabase, ListStore, MIGRATIONS } from '../server/db.js';
 import { applyOp, OpError } from '../server/ops.js';
 
 const ID1 = 'item-0000001';
@@ -128,11 +128,51 @@ test('database migrations are recorded and re-opening is safe', async (t) => {
   const file = path.join(dir, 'nested', 'db.sqlite');
   let db = openDatabase(file);
   new ListStore(db).addItem({ id: ID1, name: 'Milk', note: '', by: 'Cody' });
-  assert.equal(db.pragma('user_version', { simple: true }), 1);
+  assert.equal(db.pragma('user_version', { simple: true }), MIGRATIONS.length);
   db.close();
   db = openDatabase(file);
   assert.equal(new ListStore(db).getItem(ID1).name, 'Milk');
   db.close();
+});
+
+test('an existing database from the first version gains quantity 1 on every item', async (t) => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { default: Database } = await import('better-sqlite3');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'v1.sqlite');
+  const old = new Database(file);
+  old.exec(MIGRATIONS[0]);
+  old.pragma('user_version = 1');
+  old
+    .prepare(
+      `INSERT INTO items (id, name, note, sort, created_at, created_by, updated_at)
+       VALUES ('item-0000001', 'Milk', '', 1, 0, 'Cody', 0)`,
+    )
+    .run();
+  old.close();
+  const db = openDatabase(file);
+  t.after(() => db.close());
+  assert.equal(new ListStore(db).getItem(ID1).quantity, 1);
+});
+
+test('ops: quantity defaults to 1, can be set on add and changed later', () => {
+  const list = freshList();
+  applyOp(list, config, { kind: 'add', id: ID1, name: 'Milk' }, 'Cody');
+  assert.equal(list.getItem(ID1).quantity, 1);
+  applyOp(list, config, { kind: 'add', id: ID2, name: 'Eggs', quantity: 3 }, 'Cody');
+  assert.equal(list.getItem(ID2).quantity, 3);
+  applyOp(list, config, { kind: 'quantity', id: ID1, quantity: 4 }, 'Jess');
+  assert.equal(list.getItem(ID1).quantity, 4);
+  for (const bad of [0, 100, 1.5, '2', null]) {
+    assert.throws(() => applyOp(list, config, { kind: 'quantity', id: ID1, quantity: bad }, 'Jess'), OpError);
+  }
+  assert.throws(
+    () => applyOp(list, config, { kind: 'add', id: 'item-0000003', name: 'X', quantity: 0 }, 'Cody'),
+    OpError,
+  );
 });
 
 test('realtime: a tick on one phone shows up on the other', async (t) => {

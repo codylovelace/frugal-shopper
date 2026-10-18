@@ -1,5 +1,6 @@
 import { parsePence, formatPence, formatUnitPrice, compareQuotes, savingPence } from './compare.js';
 import { applyLocal } from './local-ops.js';
+import { parsePastedList, splitQuantity, MAX_QUANTITY } from './paste.js';
 
 // ---- Small helpers --------------------------------------------------------
 
@@ -386,7 +387,49 @@ function quoteCell(item, store, cmp) {
     h('span', { class: 'quote-price' }, hasPrice ? formatPence(q.pricePence) : mine ? 'Add price' : '—'),
     q && q.size ? h('span', { class: 'quote-size' }, q.size) : null,
     unit ? h('span', { class: 'quote-unit' }, unit) : null,
+    hasPrice && item.quantity > 1
+      ? h(
+          'span',
+          { class: 'quote-line' },
+          `× ${item.quantity} = ${formatPence(q.pricePence * item.quantity)}`,
+        )
+      : null,
     cheapest ? h('span', { class: 'badge' }, cmp.cheapest.length > 1 ? 'Same' : 'Cheapest') : null,
+  );
+}
+
+function quantityStepper(item) {
+  const change = (delta) => {
+    const quantity = item.quantity + delta;
+    if (quantity < 1 || quantity > MAX_QUANTITY) return;
+    submit({ kind: 'quantity', id: item.id, quantity });
+  };
+  return h(
+    'div',
+    { class: 'stepper', role: 'group', 'aria-label': `Quantity of ${item.name}` },
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'step',
+        'aria-label': `One fewer ${item.name}`,
+        disabled: item.quantity <= 1,
+        onclick: () => change(-1),
+      },
+      '−',
+    ),
+    h('span', { class: 'qty', 'aria-live': 'polite' }, String(item.quantity)),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'step',
+        'aria-label': `One more ${item.name}`,
+        disabled: item.quantity >= MAX_QUANTITY,
+        onclick: () => change(1),
+      },
+      '+',
+    ),
   );
 }
 
@@ -410,7 +453,7 @@ function itemRow(item) {
     detail = h(
       'p',
       { class: 'bought-line' },
-      `${formatPence(bought.pricePence)} at ${bought.store} · ${bought.by}`,
+      `${formatPence(bought.pricePence)}${item.quantity > 1 ? ` for ${item.quantity}` : ''} at ${bought.store} · ${bought.by}`,
       saving === null
         ? null
         : saving > 0
@@ -436,9 +479,10 @@ function itemRow(item) {
       h(
         'button',
         { type: 'button', class: 'item-name', onclick: () => openEdit(item) },
-        h('span', { class: 'name' }, item.name),
+        h('span', { class: 'name' }, item.quantity > 1 ? `${item.quantity} × ${item.name}` : item.name),
         item.note ? h('span', { class: 'note' }, item.note) : null,
       ),
+      bought ? null : quantityStepper(item),
     ),
     bought
       ? detail
@@ -590,12 +634,15 @@ function openBuy(item) {
   const dialog = $('buy-dialog');
   const stores = state.config.stores;
   let chosen = state.identity.store;
-  $('buy-item').textContent = item.name;
+  const qty = item.quantity;
+  $('buy-item').textContent = qty > 1 ? `${qty} × ${item.name}` : item.name;
+  $('buy-price-label').textContent = qty > 1 ? `Price paid for all ${qty} (£)` : 'Price paid (£)';
   $('buy-error').textContent = '';
 
+  // The quote is per pack, so pre-fill the total for the whole quantity.
   const fillPrice = () => {
     const q = item.quotes[chosen];
-    $('buy-price').value = q && Number.isInteger(q.pricePence) ? (q.pricePence / 100).toFixed(2) : '';
+    $('buy-price').value = q && Number.isInteger(q.pricePence) ? ((q.pricePence * qty) / 100).toFixed(2) : '';
   };
   const refresh = () => {
     for (const b of $('buy-stores').children)
@@ -636,6 +683,36 @@ function openBuy(item) {
   dialog.showModal();
   $('buy-price').focus();
   $('buy-price').select();
+}
+
+function pasteResult() {
+  const onList = viewItems()
+    .filter((i) => !i.bought)
+    .map((i) => i.name);
+  return parsePastedList($('paste-text').value, onList);
+}
+
+function updatePastePreview() {
+  const { items, skipped, truncated } = pasteResult();
+  const parts = [items.length === 1 ? '1 item to add' : `${items.length} items to add`];
+  if (skipped) parts.push(`${skipped} already on the list`);
+  if (truncated) parts.push('only the first 200 lines are used');
+  $('paste-preview').textContent = parts.join(' · ');
+  $('paste-add').disabled = items.length === 0;
+  $('paste-add').textContent = items.length ? `Add ${items.length}` : 'Add';
+}
+
+function openPaste(text) {
+  $('paste-text').value = text;
+  updatePastePreview();
+  $('paste-form').onsubmit = (e) => {
+    if (e.submitter?.value !== 'save') return;
+    for (const { name, quantity } of pasteResult().items) {
+      submit({ kind: 'add', id: newId(), name, quantity, note: '' });
+    }
+  };
+  $('paste-dialog').showModal();
+  if (!text) $('paste-text').focus();
 }
 
 function untick(item) {
@@ -698,12 +775,24 @@ function wire() {
   $('add-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const input = $('add-name');
-    const name = input.value.trim();
-    if (!name) return;
-    submit({ kind: 'add', id: newId(), name, note: '' });
+    const text = input.value.trim();
+    if (!text) return;
+    const { name, quantity } = splitQuantity(text);
+    submit({ kind: 'add', id: newId(), name, quantity, note: '' });
     input.value = '';
     input.focus();
   });
+
+  // Pasting several lines into the add box opens the paste dialog instead of
+  // squashing the whole list into one item.
+  $('add-name').addEventListener('paste', (e) => {
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (!/[\r\n]/.test(text.trim())) return;
+    e.preventDefault();
+    openPaste(text);
+  });
+  $('paste-open').addEventListener('click', () => openPaste(''));
+  $('paste-text').addEventListener('input', updatePastePreview);
 
   for (const b of document.querySelectorAll('.filter')) {
     b.addEventListener('click', () => {

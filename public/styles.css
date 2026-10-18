@@ -52,7 +52,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -144,7 +145,8 @@ label {
   margin: 12px 0 4px;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   padding: 12px;
   border: 1px solid var(--border);
@@ -154,6 +156,7 @@ input {
 }
 
 input:focus,
+textarea:focus,
 button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -561,4 +564,50 @@ legend {
 
 .toast.fade {
   opacity: 0;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.link {
+  color: var(--accent);
+  font-size: 14px;
+  min-height: 36px;
+  padding: 0 2px;
+  text-decoration: underline;
+}
+
+.stepper {
+  flex: none;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.step {
+  width: 36px;
+  min-height: 36px;
+  font-size: 20px;
+  line-height: 1;
+  background: var(--surface);
+}
+
+.step:disabled {
+  color: var(--border);
+}
+
+.qty {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-line {
+  font-size: 12px;
+  font-weight: 600;
 }

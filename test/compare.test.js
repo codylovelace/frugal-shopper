@@ -136,3 +136,11 @@ test('savingPence is unknown without a comparison', () => {
   );
   assert.equal(savingPence({ quotes: {}, bought: null }), null);
 });
+
+test('savingPence scales by quantity: the bought price is the total for every pack', () => {
+  const quotes = { 'M&S': { pricePence: 725, size: '750g' }, Aldi: { pricePence: 759, size: '750g' } };
+  // Two packs at M&S for £14.50 vs £15.18 at Aldi.
+  assert.equal(savingPence({ quantity: 2, quotes, bought: { store: 'M&S', pricePence: 1450 } }), 68);
+  const unsized = { Aldi: { pricePence: 100, size: '' }, 'M&S': { pricePence: 120, size: '' } };
+  assert.equal(savingPence({ quantity: 3, quotes: unsized, bought: { store: 'Aldi', pricePence: 300 } }), 60);
+});

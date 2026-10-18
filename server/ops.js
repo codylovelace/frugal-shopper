@@ -6,7 +6,7 @@ export class OpError extends Error {}
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_PRICE_PENCE = 1_000_000; // £10,000 is plenty for a grocery line.
 
-export const LIMITS = { name: 100, note: 200, size: 30 };
+export const LIMITS = { name: 100, note: 200, size: 30, quantity: 99 };
 
 function text(value, field, { max, required = false }) {
   if (value === undefined || value === null) value = '';
@@ -24,6 +24,17 @@ function price(value, field, { required = false } = {}) {
   }
   if (!Number.isInteger(value) || value < 0 || value > MAX_PRICE_PENCE) {
     throw new OpError(`${field} must be a whole number of pence between 0 and ${MAX_PRICE_PENCE}`);
+  }
+  return value;
+}
+
+function quantity(value, { required = false } = {}) {
+  if (value === undefined || value === null) {
+    if (required) throw new OpError('quantity is required');
+    return 1;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > LIMITS.quantity) {
+    throw new OpError(`quantity must be a whole number from 1 to ${LIMITS.quantity}`);
   }
   return value;
 }
@@ -57,10 +68,11 @@ export function applyOp(list, config, op, by) {
       const id = itemId(op.id);
       const name = text(op.name, 'name', { max: LIMITS.name, required: true });
       const note = text(op.note, 'note', { max: LIMITS.note });
+      const qty = quantity(op.quantity);
       // A resent add for an item that already exists is a no-op.
       const already = list.getItem(id);
       if (already) return { items: [already], deleted: [] };
-      return { items: [list.addItem({ id, name, note, by })], deleted: [] };
+      return { items: [list.addItem({ id, name, note, quantity: qty, by })], deleted: [] };
     }
     case 'edit': {
       const id = itemId(op.id);
@@ -68,6 +80,11 @@ export function applyOp(list, config, op, by) {
       const name = text(op.name, 'name', { max: LIMITS.name, required: true });
       const note = text(op.note, 'note', { max: LIMITS.note });
       return { items: [list.updateItem(id, { name, note })], deleted: [] };
+    }
+    case 'quantity': {
+      const id = itemId(op.id);
+      existing(list, id);
+      return { items: [list.setQuantity(id, quantity(op.quantity, { required: true }))], deleted: [] };
     }
     case 'quote': {
       const id = itemId(op.id);

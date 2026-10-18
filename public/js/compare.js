@@ -133,7 +133,9 @@ export function compareQuotes(quotes) {
 
 /**
  * How much was saved by buying `item` where it was bought, compared with the
- * cheapest other quote for the same quantity. Null when it can't be worked out.
+ * cheapest other quote for the same amount. Quotes are per pack and the
+ * bought price is the total paid for `item.quantity` packs.
+ * Null when it can't be worked out.
  */
 export function savingPence(item) {
   const bought = item.bought;
@@ -149,11 +151,12 @@ export function savingPence(item) {
   if (!own || !Number.isInteger(own.pricePence)) return null;
   const cmp = compareQuotes(quotes);
   const ownSize = parseSize(own.size);
+  const qty = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
   if (cmp.basis === 'unit' && ownSize) {
     const alt = Math.min(...others.map(([store]) => cmp.perBase[store] * ownSize.base));
-    return Math.round(alt - bought.pricePence);
+    return Math.round(alt * qty - bought.pricePence);
   }
   if (!cmp.comparable) return null;
   const alt = Math.min(...others.map(([, q]) => q.pricePence));
-  return alt - bought.pricePence;
+  return alt * qty - bought.pricePence;
 }

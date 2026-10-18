@@ -12,6 +12,7 @@ export function applyLocal(items, op, by) {
         id: op.id,
         name: op.name,
         note: op.note || '',
+        quantity: op.quantity || 1,
         sort: maxSort + 1,
         createdAt: now,
         createdBy: by,
@@ -23,6 +24,9 @@ export function applyLocal(items, op, by) {
     }
     case 'edit':
       if (item) Object.assign(item, { name: op.name, note: op.note || '', updatedAt: now });
+      return;
+    case 'quantity':
+      if (item) Object.assign(item, { quantity: op.quantity, updatedAt: now });
       return;
     case 'quote':
       if (!item) return;

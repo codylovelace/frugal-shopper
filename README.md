@@ -9,14 +9,17 @@ Built for Cody at Aldi and Jess at M&S, but the shops and people are settings.
 ## How it works in the shop
 
 1. Open the site on both phones, enter the passcode once, pick who you are and which shop you're in.
-2. Either of you adds items to the list.
+2. Either of you adds items to the list. To bring over a list from your phone's notes, tap **Paste a list from
+   Notes** (or just paste several lines into the add box): one item per line, with checkboxes, bullets and
+   numbering removed and duplicates skipped. `2x Milk` or `Milk x2` sets the quantity, and the **− / +**
+   buttons on each item change it.
 3. Tap your shop's box on an item to enter the price and pack size (e.g. `7.59` and `750g`). The other phone
    sees it instantly, so you don't need to send prices to each other in a chat.
 4. The cheaper shop is highlighted. With pack sizes filled in, it compares per kg, litre or item, so a 500g
    pack and a 1kg pack are compared fairly. If only one side has a size you get a warning instead of a
    misleading answer.
-5. Whoever is in the cheaper shop taps the tick box, confirms the price paid (it's pre-filled from the price
-   they entered) and it moves to **In the basket** on both phones, with a pop-up on the other phone saying
+5. Whoever is in the cheaper shop taps the tick box, confirms the price paid (pre-filled from the price they
+   entered, times the quantity) and it moves to **In the basket** on both phones, with a pop-up on the other phone saying
    who bought what and where.
 6. The bar at the bottom shows what's been spent in each shop, the total, how much you saved compared with
    the other shop, and how many items are left.

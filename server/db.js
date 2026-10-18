@@ -4,7 +4,7 @@ import path from 'node:path';
 
 // Each entry upgrades the schema by one version. Never edit a shipped entry;
 // append a new one so existing databases migrate forward.
-const MIGRATIONS = [
+export const MIGRATIONS = [
   `
   CREATE TABLE items (
     id                 TEXT PRIMARY KEY,
@@ -39,6 +39,8 @@ const MIGRATIONS = [
   );
   CREATE INDEX applied_ops_applied_at ON applied_ops(applied_at);
   `,
+  // How many of an item to buy. Quoted prices are per pack; the bought price is the total paid.
+  `ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1;`,
 ];
 
 const OP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -77,6 +79,7 @@ function rowToItem(row, quoteRows) {
     id: row.id,
     name: row.name,
     note: row.note,
+    quantity: row.quantity,
     sort: row.sort,
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -105,10 +108,11 @@ export class ListStore {
       itemQuotes: db.prepare('SELECT * FROM quotes WHERE item_id = ?'),
       nextSort: db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS next FROM items'),
       insertItem: db.prepare(
-        `INSERT INTO items (id, name, note, sort, created_at, created_by, updated_at)
-         VALUES (@id, @name, @note, @sort, @now, @by, @now)`,
+        `INSERT INTO items (id, name, note, quantity, sort, created_at, created_by, updated_at)
+         VALUES (@id, @name, @note, @quantity, @sort, @now, @by, @now)`,
       ),
       updateItem: db.prepare('UPDATE items SET name = @name, note = @note, updated_at = @now WHERE id = @id'),
+      setQuantity: db.prepare('UPDATE items SET quantity = @quantity, updated_at = @now WHERE id = @id'),
       touch: db.prepare('UPDATE items SET updated_at = ? WHERE id = ?'),
       upsertQuote: db.prepare(
         `INSERT INTO quotes (item_id, store, price_pence, size, updated_by, updated_at)
@@ -159,9 +163,14 @@ export class ListStore {
     return row ? rowToItem(row, this.stmt.itemQuotes.all(id)) : null;
   }
 
-  addItem({ id, name, note, by }) {
+  addItem({ id, name, note, quantity = 1, by }) {
     const sort = this.stmt.nextSort.get().next;
-    this.stmt.insertItem.run({ id, name, note, sort, by, now: this.now() });
+    this.stmt.insertItem.run({ id, name, note, quantity, sort, by, now: this.now() });
+    return this.getItem(id);
+  }
+
+  setQuantity(id, quantity) {
+    this.stmt.setQuantity.run({ id, quantity, now: this.now() });
     return this.getItem(id);
   }
 
