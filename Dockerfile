@@ -3,9 +3,10 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-# better-sqlite3 ships prebuilt binaries for Alpine (musl) on x64 and arm64,
-# so no compiler toolchain is needed.
-RUN npm ci --omit=dev && npm cache clean --force
+# better-sqlite3 ships prebuilt binaries for Alpine (musl) on x64 and arm64.
+# --ignore-scripts skips npm's implicit node-gyp step, which would otherwise
+# need Python just to discover there is nothing to compile.
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 FROM node:24-alpine
 RUN mkdir -p /data && chown node:node /data
