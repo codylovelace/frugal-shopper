@@ -742,3 +742,30 @@ textarea {
 #history .danger-link {
   margin-top: 16px;
 }
+
+.notice {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--mine);
+  font-size: 15px;
+}
+
+.notice p {
+  margin: 0 0 10px;
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#notify-settings {
+  margin-bottom: 16px;
+}
+
+#notify-settings .error:empty {
+  display: none;
+}

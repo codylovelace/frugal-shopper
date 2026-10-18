@@ -2,6 +2,7 @@ import { parsePence, formatPence, formatUnitPrice, compareQuotes, savingPence } 
 import { applyLocal } from './local-ops.js';
 import { parsePastedList, splitQuantity, MAX_QUANTITY } from './paste.js';
 import { nameKey, looksLikeSameItem } from './match.js';
+import * as notify from './notify.js';
 
 // ---- Small helpers --------------------------------------------------------
 
@@ -74,6 +75,9 @@ const state = {
   ws: null,
   connected: false,
   haveLiveState: false,
+  // Phone notifications on this phone: the push endpoint when they're on.
+  pushEndpoint: null,
+  pushBusy: false,
 };
 
 function saveOutbox() {
@@ -193,6 +197,7 @@ async function connect() {
     reconnectDelay = 1000;
     setConn('online', 'Live');
     identify();
+    sendVisibility();
     clearInterval(pingTimer);
     pingTimer = setInterval(checkAlive, PING_EVERY_MS);
   });
@@ -243,6 +248,7 @@ function handleMessage(msg) {
       flushOutbox();
       render();
       loadLastSeen();
+      syncPush();
       break;
     case 'history':
       if (msg.finished && msg.by !== state.identity?.person) {
@@ -291,6 +297,103 @@ function handleMessage(msg) {
   }
 }
 
+// ---- Phone notifications --------------------------------------------------
+
+const otherPeople = () =>
+  (state.config?.people ?? []).map((p) => p.name).filter((n) => n !== state.identity?.person);
+const othersText = () => otherPeople().join(' or ') || 'someone';
+
+// Tells the server whether the app is on screen, so it can skip the
+// notification for a phone that already shows the in-app pop-up.
+function sendVisibility() {
+  sendRaw({
+    type: 'visibility',
+    visible: document.visibilityState === 'visible',
+    endpoint: state.pushEndpoint,
+  });
+}
+
+let pushSynced = false;
+async function syncPush() {
+  if (pushSynced || !validIdentity()) return;
+  pushSynced = true;
+  try {
+    state.pushEndpoint = await notify.resync(state.identity.person);
+  } catch {
+    state.pushEndpoint = null;
+  }
+  sendVisibility();
+  renderNotify();
+}
+
+async function setNotifications(on) {
+  state.pushBusy = true;
+  $('notify-error').textContent = '';
+  renderNotify();
+  try {
+    if (on) {
+      state.pushEndpoint = await notify.enable(state.identity.person);
+      toast(`Notifications on. You'll hear when ${othersText()} ticks something off.`);
+    } else {
+      await notify.disable();
+      state.pushEndpoint = null;
+    }
+  } catch (err) {
+    $('notify-error').textContent = err.message;
+    if (!on) state.pushEndpoint = null;
+    if (on) toast(`Couldn't turn on notifications: ${err.message}`, 'error');
+  } finally {
+    state.pushBusy = false;
+    storage.set('fs.notifyAsked', true);
+    sendVisibility();
+    renderNotify();
+  }
+}
+
+const NOTIFY_HELP = {
+  insecure:
+    'Phone notifications need the site opened on an https:// address, e.g. through a reverse proxy or tunnel. The pop-ups inside the app still work.',
+  'ios-install':
+    'On iPhone, notifications only work from the Home Screen: tap Share, then Add to Home Screen, and open it from there.',
+  unsupported: "This browser can't show notifications.",
+  denied:
+    'Notifications are blocked for this site. Allow them for this site in the browser or phone settings, then reload.',
+};
+
+function renderNotify() {
+  const status = notify.support();
+  const on = Boolean(state.pushEndpoint);
+  const who = othersText();
+
+  // Settings, under the shop picker.
+  $('notify-settings').hidden = !validIdentity();
+  if (status !== 'ok') {
+    $('notify-status').textContent = NOTIFY_HELP[status];
+  } else {
+    $('notify-status').textContent = on
+      ? `On: this phone gets a notification when ${who} ticks something off or finishes the shop, even with the screen locked.`
+      : `Off: get a notification on this phone when ${who} ticks something off.`;
+  }
+  $('notify-toggle').hidden = status !== 'ok';
+  $('notify-toggle').textContent = on ? 'Turn off' : 'Turn on';
+  $('notify-toggle').disabled = state.pushBusy;
+  $('notify-test').hidden = status !== 'ok' || !on;
+
+  // One-off suggestion at the top of the list.
+  const asked = storage.get('fs.notifyAsked', false);
+  const offer = !asked && !on && otherPeople().length > 0 && (status === 'ok' || status === 'ios-install');
+  $('notify-banner').hidden = !offer;
+  if (offer) {
+    $('notify-banner-text').textContent =
+      status === 'ok'
+        ? `Get a notification on this phone when ${who} ticks something off, even with the screen locked?`
+        : `To get a notification when ${who} ticks something off, add this to your Home Screen: tap Share, then Add to Home Screen, and open it from there.`;
+    $('notify-banner-on').hidden = status !== 'ok';
+    $('notify-banner-on').disabled = state.pushBusy;
+    $('notify-banner-later').textContent = status === 'ok' ? 'Not now' : 'OK';
+  }
+}
+
 // ---- Screens --------------------------------------------------------------
 
 function showScreen() {
@@ -306,6 +409,7 @@ function showScreen() {
   $('whoami').hidden = !cfg || locked || !validIdentity();
   $('history-open').hidden = $('whoami').hidden || inHistory;
   if (inHistory) renderHistory();
+  renderNotify();
   if (locked) $('passcode').focus();
   if (needsSetup) renderSetup();
   if (!$('app').hidden) render();
@@ -364,9 +468,15 @@ function renderSetup() {
     ),
   );
   done.onclick = () => {
+    const changedPerson = state.identity?.person !== person;
     state.identity = { person, store };
     storage.set('fs.identity', state.identity);
     identify();
+    if (changedPerson) {
+      // Notifications follow the person using this phone.
+      pushSynced = false;
+      syncPush();
+    }
     flushOutbox();
     showScreen();
   };
@@ -1270,9 +1380,27 @@ function wire() {
     renderSetup();
   });
 
+  $('notify-toggle').addEventListener('click', () => setNotifications(!state.pushEndpoint));
+  $('notify-banner-on').addEventListener('click', () => setNotifications(true));
+  $('notify-banner-later').addEventListener('click', () => {
+    storage.set('fs.notifyAsked', true);
+    renderNotify();
+  });
+  $('notify-test').addEventListener('click', async () => {
+    $('notify-error').textContent = '';
+    try {
+      await notify.sendTest(state.pushEndpoint);
+      toast('Test notification sent.');
+    } catch (err) {
+      $('notify-error').textContent = err.message;
+    }
+  });
+
   // Phones suspend background tabs; reconnect as soon as the page is visible again.
   document.addEventListener('visibilitychange', () => {
+    sendVisibility();
     if (document.visibilityState !== 'visible') return;
+    notify.clearShown().catch(() => {});
     if (state.connected) {
       checkAlive();
     } else {
@@ -1303,6 +1431,10 @@ async function start() {
   }
   showScreen();
   connect();
+  notify
+    .register()
+    .then(() => notify.clearShown())
+    .catch(() => {});
 }
 
 start();

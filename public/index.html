@@ -45,10 +45,26 @@
         <div id="people" class="choice-grid"></div>
         <h2>Which shop are you in?</h2>
         <div id="stores" class="choice-grid"></div>
+        <div id="notify-settings" hidden>
+          <h2>Notifications</h2>
+          <p id="notify-status" class="hint"></p>
+          <p id="notify-error" class="error" role="alert"></p>
+          <div class="notice-actions">
+            <button id="notify-toggle" class="secondary" type="button"></button>
+            <button id="notify-test" class="link" type="button" hidden>Send a test</button>
+          </div>
+        </div>
         <button id="setup-done" class="primary" type="button" disabled>Start shopping</button>
       </section>
 
       <section id="app" hidden>
+        <div id="notify-banner" class="notice" hidden>
+          <p id="notify-banner-text"></p>
+          <div class="notice-actions">
+            <button id="notify-banner-on" class="primary" type="button">Turn on</button>
+            <button id="notify-banner-later" class="secondary" type="button">Not now</button>
+          </div>
+        </div>
         <form id="add-form" class="add-form" autocomplete="off">
           <input
             id="add-name"

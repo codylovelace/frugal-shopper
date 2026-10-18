@@ -15,6 +15,10 @@
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
+    "web-push": "^3.6.7",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "http_ece": "1.2.0"
   }
 }

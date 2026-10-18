@@ -90,6 +90,17 @@ export const MIGRATIONS = [
     PRIMARY KEY (trip_item_id, store)
   );
   `,
+  // Phones that asked for notifications, and whose they are.
+  `
+  CREATE TABLE push_subscriptions (
+    endpoint   TEXT PRIMARY KEY,
+    person     TEXT NOT NULL,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 const OP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;

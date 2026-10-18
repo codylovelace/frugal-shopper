@@ -25,8 +25,9 @@ Built for Cody at Aldi and Jess at M&S, but the shops and people are settings.
    pack and a 1kg pack are compared fairly. If only one side has a size you get a warning instead of a
    misleading answer.
 6. Whoever is in the cheaper shop taps the tick box, confirms the price paid (pre-filled from the price they
-   entered, times the quantity) and it moves to **In the basket** on both phones, with a pop-up on the other phone saying
-   who bought what and where.
+   entered, times the quantity) and it moves to **In the basket** on both phones, with a pop-up on the other
+   phone saying who bought what and where. With [notifications](#phone-notifications) on, the other phone
+   is told even when it's in a pocket.
 7. The bar at the bottom shows what's been spent in each shop, the total, how much you saved compared with
    the other shop, and how many items are left.
 8. When you're done, **Finish this shop** saves what you bought, with both shops' prices, to **History** under
@@ -71,16 +72,17 @@ password: a classic token with `read:packages`).
 
 ### Settings
 
-| Variable         | Default              | What it does                                                                                                                                                             |
-| ---------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `APP_PASSCODE`   | _(empty)_            | Shared passcode each phone enters once (kept signed in for `SESSION_DAYS`). Empty means no passcode: only do that on a LAN you trust. Changing it signs every phone out. |
-| `STORES`         | `Aldi,M&S`           | The shops shown side by side, 2 to 4, comma separated.                                                                                                                   |
-| `PEOPLE`         | `Cody:Aldi,Jess:M&S` | Who uses it, as `Name` or `Name:Usual shop`. The usual shop is pre-selected when that person picks their name.                                                           |
-| `HOST_PORT`      | `8085`               | Port published on the Docker host (compose files only).                                                                                                                  |
-| `TRUST_PROXY`    | `false`              | Set to `true` behind a reverse proxy, so the sign-in cookie is marked Secure on HTTPS and lock-outs use the real client IP.                                              |
-| `SESSION_DAYS`   | `90`                 | How long a phone stays signed in.                                                                                                                                        |
-| `SESSION_SECRET` | _(generated)_        | Key that signs the sign-in cookie. Generated and stored in the database if not set.                                                                                      |
-| `APP_TITLE`      | `Frugal Shopper`     | Name shown at the top of the page.                                                                                                                                       |
+| Variable         | Default                        | What it does                                                                                                                                                             |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `APP_PASSCODE`   | _(empty)_                      | Shared passcode each phone enters once (kept signed in for `SESSION_DAYS`). Empty means no passcode: only do that on a LAN you trust. Changing it signs every phone out. |
+| `STORES`         | `Aldi,M&S`                     | The shops shown side by side, 2 to 4, comma separated.                                                                                                                   |
+| `PEOPLE`         | `Cody:Aldi,Jess:M&S`           | Who uses it, as `Name` or `Name:Usual shop`. The usual shop is pre-selected when that person picks their name.                                                           |
+| `HOST_PORT`      | `8085`                         | Port published on the Docker host (compose files only).                                                                                                                  |
+| `TRUST_PROXY`    | `false`                        | Set to `true` behind a reverse proxy, so the sign-in cookie is marked Secure on HTTPS and lock-outs use the real client IP.                                              |
+| `SESSION_DAYS`   | `90`                           | How long a phone stays signed in.                                                                                                                                        |
+| `SESSION_SECRET` | _(generated)_                  | Key that signs the sign-in cookie. Generated and stored in the database if not set.                                                                                      |
+| `APP_TITLE`      | `Frugal Shopper`               | Name shown at the top of the page.                                                                                                                                       |
+| `PUSH_CONTACT`   | _(this project's GitHub page)_ | Contact sent to the push services with each notification, as `mailto:you@example.com` or an `https://` link. They only use it if the server misbehaves.                  |
 
 A bad setting stops the container with a message naming the variable; check the container logs in Portainer.
 
@@ -93,6 +95,26 @@ keep `APP_PASSCODE` set. The proxy must allow WebSockets (in Nginx Proxy Manager
 Tailscale on both phones is another good option that keeps it off the public internet entirely.
 
 Over HTTPS you can also use "Add to Home Screen" on iPhone or "Install app" on Android to open it like an app.
+
+### Phone notifications
+
+Each phone can get a notification when the other person ticks something off or finishes the shop, even with the
+screen locked or another app open. The first time you open the list it offers to turn them on; afterwards tap your
+name at the top to turn them off, back on, or **Send a test**. While the app is on screen you get the in-app
+pop-up instead, and several ticks in a row stack into one notification ("Jess ticked off 3 items").
+
+They need:
+
+- **HTTPS.** Browsers only allow notifications on an `https://` address, so use one of the reverse proxy or
+  tunnel options above. `http://<docker-host-ip>:8085` works for everything else but can't do notifications.
+  With Tailscale, `tailscale serve` gives the site an HTTPS address.
+- **On iPhone: add it to the Home Screen first** (Share, then **Add to Home Screen**) and open it from there.
+  iOS 16.4 or later only allows notifications for Home Screen apps, not for Safari tabs.
+- **Outbound internet from the container**, to reach Google's, Apple's or Mozilla's push service.
+
+The keys that identify the server to those services are made on first start and kept in the database. If a
+phone stops getting them, turn them off and on again on that phone; phones that are reset or replaced are
+removed automatically the next time a notification is refused.
 
 ### Backups and updates
 
