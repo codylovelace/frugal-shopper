@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1f6f4a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Frugal Shopper</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/js/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-row">
+        <h1 id="title">Frugal Shopper</h1>
+        <span id="conn" class="conn" data-state="connecting" role="status" aria-live="polite"
+          >Connecting…</span
+        >
+      </div>
+      <div class="topbar-row small">
+        <button id="whoami" class="chip" type="button" hidden></button>
+        <span id="online" class="online"></span>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="login" class="panel" hidden>
+        <h2>Enter the passcode</h2>
+        <form id="login-form" autocomplete="on">
+          <label for="passcode">Passcode</label>
+          <input id="passcode" name="passcode" type="password" autocomplete="current-password" required />
+          <p id="login-error" class="error" role="alert"></p>
+          <button class="primary" type="submit">Unlock</button>
+        </form>
+      </section>
+
+      <section id="setup" class="panel" hidden>
+        <h2>Who are you?</h2>
+        <div id="people" class="choice-grid"></div>
+        <h2>Which shop are you in?</h2>
+        <div id="stores" class="choice-grid"></div>
+        <button id="setup-done" class="primary" type="button" disabled>Start shopping</button>
+      </section>
+
+      <section id="app" hidden>
+        <form id="add-form" class="add-form" autocomplete="off">
+          <input
+            id="add-name"
+            type="text"
+            placeholder="Add an item, e.g. Beef mince 5%"
+            maxlength="100"
+            aria-label="Item name"
+            required
+          />
+          <button class="primary" type="submit">Add</button>
+        </form>
+
+        <nav class="filters" aria-label="Filter the list">
+          <button type="button" class="filter" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" class="filter" data-filter="cheapest-here" aria-pressed="false">
+            Cheapest here
+          </button>
+          <button type="button" class="filter" data-filter="needs-price" aria-pressed="false">
+            Needs my price
+          </button>
+        </nav>
+
+        <div id="store-header" class="store-header" aria-hidden="true"></div>
+        <ul id="todo" class="items" aria-label="Still to buy"></ul>
+        <p id="empty" class="empty-list" hidden></p>
+
+        <section id="basket-section" hidden>
+          <h2 class="section-title">In the basket</h2>
+          <ul id="basket" class="items" aria-label="Bought"></ul>
+          <button id="clear-bought" class="secondary" type="button">Clear ticked items</button>
+        </section>
+      </section>
+    </main>
+
+    <footer id="totals" class="totals" hidden></footer>
+
+    <dialog id="quote-dialog">
+      <form method="dialog" id="quote-form">
+        <h2 id="quote-title">Price</h2>
+        <p id="quote-item" class="muted"></p>
+        <label for="quote-price">Price (£)</label>
+        <input id="quote-price" inputmode="decimal" autocomplete="off" placeholder="7.25" />
+        <label for="quote-size">Pack size</label>
+        <input id="quote-size" autocomplete="off" maxlength="30" placeholder="750g, 1kg, 4 x 330ml, 6" />
+        <p class="hint">Add a size and the cheapest shop is worked out per kg, litre or item.</p>
+        <p id="quote-error" class="error" role="alert"></p>
+        <div class="dialog-actions">
+          <button value="clear" id="quote-clear" class="danger-link" type="submit">Remove price</button>
+          <button value="cancel" class="secondary" type="submit" formnovalidate>Cancel</button>
+          <button value="save" class="primary" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="buy-dialog">
+      <form method="dialog" id="buy-form">
+        <h2>Tick off</h2>
+        <p id="buy-item" class="muted"></p>
+        <fieldset>
+          <legend>Bought at</legend>
+          <div id="buy-stores" class="choice-grid"></div>
+        </fieldset>
+        <label for="buy-price">Price paid (£)</label>
+        <input id="buy-price" inputmode="decimal" autocomplete="off" placeholder="7.25" />
+        <p id="buy-error" class="error" role="alert"></p>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit" formnovalidate>Cancel</button>
+          <button value="save" class="primary" type="submit">Tick off</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="edit-dialog">
+      <form method="dialog" id="edit-form">
+        <h2>Edit item</h2>
+        <label for="edit-name">Name</label>
+        <input id="edit-name" maxlength="100" autocomplete="off" />
+        <label for="edit-note">Note</label>
+        <input id="edit-note" maxlength="200" autocomplete="off" placeholder="e.g. get the 750g pack" />
+        <p id="edit-error" class="error" role="alert"></p>
+        <div class="dialog-actions">
+          <button value="delete" class="danger-link" type="submit">Delete item</button>
+          <button value="cancel" class="secondary" type="submit" formnovalidate>Cancel</button>
+          <button value="save" class="primary" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+  </body>
+</html>
