@@ -1,0 +1,24 @@
+# Alternative for Portainer's "Web editor": pulls the image that GitHub Actions
+# publishes from the main branch instead of building it on the Docker host.
+# If the repository is private, add ghcr.io under Portainer > Registries first
+# (username: your GitHub login, password: a token with read:packages).
+services:
+  frugal-shopper:
+    image: ghcr.io/codylovelace/frugal-shopper:latest
+    container_name: frugal-shopper
+    restart: unless-stopped
+    # Runs a tiny init process so stop signals reach the app straight away.
+    init: true
+    ports:
+      - "${HOST_PORT:-8085}:3000"
+    environment:
+      APP_PASSCODE: "${APP_PASSCODE:-}"
+      STORES: "${STORES:-Aldi,M&S}"
+      PEOPLE: "${PEOPLE:-Cody:Aldi,Jess:M&S}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      APP_TITLE: "${APP_TITLE:-Frugal Shopper}"
+    volumes:
+      - frugal-shopper-data:/data
+
+volumes:
+  frugal-shopper-data:

@@ -1,0 +1,29 @@
+# Portainer: Stacks > Add stack > Repository, point it at this repo and
+# leave "Compose path" as docker-compose.yml. Set the variables below in the
+# stack's "Environment variables" section. See README.md for details.
+services:
+  frugal-shopper:
+    build: .
+    image: frugal-shopper:local
+    container_name: frugal-shopper
+    restart: unless-stopped
+    # Runs a tiny init process so stop signals reach the app straight away.
+    init: true
+    ports:
+      - "${HOST_PORT:-8085}:3000"
+    environment:
+      # Shared passcode both phones type once. Leave empty only on a trusted LAN.
+      APP_PASSCODE: "${APP_PASSCODE:-}"
+      # The shops shown side by side (2 to 4).
+      STORES: "${STORES:-Aldi,M&S}"
+      # Who uses it, with the shop each person usually goes to.
+      PEOPLE: "${PEOPLE:-Cody:Aldi,Jess:M&S}"
+      # Set to true when behind a reverse proxy (Nginx Proxy Manager, Traefik,
+      # Cloudflare Tunnel) that terminates HTTPS.
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      APP_TITLE: "${APP_TITLE:-Frugal Shopper}"
+    volumes:
+      - frugal-shopper-data:/data
+
+volumes:
+  frugal-shopper-data:
