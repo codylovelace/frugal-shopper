@@ -5,6 +5,7 @@ import { openDatabase, ListStore } from './db.js';
 import { Auth } from './auth.js';
 import { HistoryStore } from './history.js';
 import { createApp } from './app.js';
+import { PushStore, Notifier, loadVapidKeys } from './push.js';
 
 let config;
 try {
@@ -43,7 +44,12 @@ if (!secret) {
 }
 
 const auth = new Auth({ passcode: config.passcode, secret, sessionDays: config.sessionDays });
-const { server, close } = createApp({ config, list, history, auth });
+const pushStore = new PushStore(db);
+const notifier = new Notifier({
+  store: pushStore,
+  vapid: { ...loadVapidKeys(list), subject: config.pushContact },
+});
+const { server, close } = createApp({ config, list, history, auth, push: { store: pushStore, notifier } });
 
 server.listen(config.port, config.host, () => {
   console.log(`Frugal Shopper listening on http://${config.host}:${config.port}`);

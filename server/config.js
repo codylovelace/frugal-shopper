@@ -59,6 +59,12 @@ export function loadConfig(env = process.env) {
     throw new ConfigError('APP_PASSCODE must be at least 4 characters (or empty to disable)');
   }
 
+  // Contact the push services can use if this server misbehaves (RFC 8292).
+  const pushContact = env.PUSH_CONTACT || 'https://github.com/codylovelace/frugal-shopper';
+  if (!/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/.test(pushContact)) {
+    throw new ConfigError('PUSH_CONTACT must be a mailto: address or an https:// link');
+  }
+
   return {
     port: int(env.PORT ?? 3000, 'PORT', { min: 1, max: 65535 }),
     host: env.HOST || '0.0.0.0',
@@ -70,5 +76,6 @@ export function loadConfig(env = process.env) {
     sessionDays: int(env.SESSION_DAYS ?? 90, 'SESSION_DAYS', { min: 1, max: 3650 }),
     trustProxy: bool(env.TRUST_PROXY ?? 'false', 'TRUST_PROXY'),
     title: (env.APP_TITLE || 'Frugal Shopper').slice(0, 40),
+    pushContact,
   };
 }

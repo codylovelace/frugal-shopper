@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { applyOp, OpError } from './ops.js';
+import { parseSubscription, isKnownPushService, PushError } from './push.js';
+import { formatPence } from '../public/js/compare.js';
 
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -94,7 +96,14 @@ function readJson(req, limit = 4096) {
   });
 }
 
-export function createApp({ config, list, history, auth, log = console }) {
+// "3 × 500g oats", or just the name for one.
+const withQuantity = (item) => (item.quantity > 1 ? `${item.quantity} × ${item.name}` : item.name);
+
+/**
+ * push: { store: PushStore, notifier: Notifier, allowEndpoint? } or omitted
+ * to run without phone notifications.
+ */
+export function createApp({ config, list, history, auth, push = null, log = console }) {
   const files = loadStaticFiles();
 
   const clientIp = (req) => {
@@ -190,6 +199,58 @@ export function createApp({ config, list, history, auth, log = console }) {
         return trip ? sendJson(res, 200, trip) : sendJson(res, 404, { error: 'No such shop' });
       }
     }
+    if (url.pathname.startsWith('/api/push')) return handlePush(req, res, url);
+    return sendJson(res, 404, { error: 'Not found' });
+  }
+
+  async function handlePush(req, res, url) {
+    if (!auth.isAuthenticated(req)) return sendJson(res, 401, { error: 'Sign in first' });
+    if (!push) return sendJson(res, 404, { error: 'Notifications are not available' });
+    if (url.pathname === '/api/push' && req.method === 'GET') {
+      return sendJson(res, 200, { publicKey: push.notifier.publicKey });
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!sameOrigin(req)) return sendJson(res, 403, { error: 'Cross-site request refused' });
+    let body;
+    try {
+      body = await readJson(req);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+
+    if (url.pathname === '/api/push/subscribe') {
+      let sub;
+      try {
+        sub = parseSubscription(body.subscription, push.allowEndpoint ?? isKnownPushService);
+      } catch (err) {
+        if (err instanceof PushError) return sendJson(res, 400, { error: err.message });
+        throw err;
+      }
+      // The service worker renews an expired subscription without knowing
+      // whose phone it is, so it names the old one instead.
+      const old = typeof body.oldEndpoint === 'string' ? push.store.get(body.oldEndpoint) : null;
+      const person = config.people.find((p) => p.name === body.person)?.name ?? old?.person;
+      if (!person) return sendJson(res, 400, { error: 'Unknown person' });
+      if (old && old.endpoint !== sub.endpoint) push.store.remove(old.endpoint);
+      push.store.save(sub, person);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/push/unsubscribe') {
+      if (typeof body.endpoint === 'string') push.store.remove(body.endpoint);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/push/test') {
+      const sub = typeof body.endpoint === 'string' ? push.store.get(body.endpoint) : null;
+      if (!sub) return sendJson(res, 404, { error: 'This phone is not signed up for notifications' });
+      const others = config.people.filter((p) => p.name !== sub.person).map((p) => p.name);
+      push.notifier.notifyEndpoint(sub.endpoint, {
+        kind: 'test',
+        title: 'Notifications are on',
+        body: `You'll get one like this when ${others.join(' or ') || 'someone'} ticks something off.`,
+        tag: 'test',
+      });
+      return sendJson(res, 200, { ok: true });
+    }
     return sendJson(res, 404, { error: 'Not found' });
   }
 
@@ -252,6 +313,40 @@ export function createApp({ config, list, history, auth, log = console }) {
     }
   };
 
+  // Phone notifications for the things worth knowing about while shopping:
+  // the other person ticking something off, and finishing the shop.
+  const notifyOthers = (op, result, by) => {
+    if (!push) return;
+    let payload = null;
+    if (op.kind === 'buy' && !result.wasBought) {
+      const item = result.items[0];
+      if (!item?.bought) return;
+      payload = {
+        kind: 'tick',
+        by,
+        title: `${by} ticked off ${withQuantity(item)}`,
+        body: `${formatPence(item.bought.pricePence)} at ${item.bought.store}`,
+        tag: `ticks-${by}`,
+        tick: `${withQuantity(item)} ${formatPence(item.bought.pricePence)}`,
+      };
+    } else if (op.kind === 'finishTrip' && result.tripId) {
+      const n = result.deleted.length;
+      payload = {
+        kind: 'finished',
+        by,
+        title: `${by} finished the shop`,
+        body: `${n} ${n === 1 ? 'item' : 'items'} saved to History`,
+        tag: `finished-${by}`,
+      };
+    }
+    if (!payload) return;
+    const onScreen = new Set();
+    for (const ws of wss.clients) {
+      if (ws.visible && ws.pushEndpoint) onScreen.add(ws.pushEndpoint);
+    }
+    push.notifier.notifyOthers(by, payload, { skipEndpoints: onScreen });
+  };
+
   const reply = (ws, message) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
   };
@@ -276,6 +371,8 @@ export function createApp({ config, list, history, auth, log = console }) {
   wss.on('connection', (ws) => {
     ws.isAlive = true;
     ws.identity = null;
+    ws.visible = false;
+    ws.pushEndpoint = null;
     ws.on('pong', () => {
       ws.isAlive = true;
     });
@@ -302,6 +399,15 @@ export function createApp({ config, list, history, auth, log = console }) {
         return broadcast({ type: 'presence', online: presence() });
       }
 
+      // Phones say when the app is on screen, so they get the in-app pop-up
+      // rather than a notification as well.
+      if (msg.type === 'visibility') {
+        ws.visible = msg.visible === true;
+        ws.pushEndpoint =
+          typeof msg.endpoint === 'string' && msg.endpoint.length <= 2048 ? msg.endpoint : null;
+        return;
+      }
+
       if (msg.type === 'op') {
         if (typeof msg.opId !== 'string' || !OP_ID_RE.test(msg.opId)) {
           return reply(ws, { type: 'error', error: 'Operation id missing' });
@@ -315,9 +421,11 @@ export function createApp({ config, list, history, auth, log = console }) {
             // A client resends anything it did not see acknowledged, e.g.
             // after its connection dropped mid-shop. Apply each op only once.
             if (list.hasAppliedOp(msg.opId)) return null;
+            const before =
+              msg.op?.kind === 'buy' && typeof msg.op.id === 'string' ? list.getItem(msg.op.id) : null;
             const r = applyOp(list, config, msg.op, ws.identity.person, history);
             list.recordOp(msg.opId);
-            return r;
+            return { ...r, wasBought: Boolean(before?.bought) };
           });
         } catch (err) {
           if (err instanceof OpError) {
@@ -336,6 +444,7 @@ export function createApp({ config, list, history, auth, log = console }) {
             finished: result.tripId ? { tripId: result.tripId, count: result.deleted.length } : null,
           });
         }
+        if (result) notifyOthers(msg.op, result, ws.identity.person);
         return reply(ws, { type: 'ack', opId: msg.opId });
       }
 
@@ -382,7 +491,8 @@ export function createApp({ config, list, history, auth, log = console }) {
       wss.close();
       server.close(() => resolve());
       server.closeAllConnections?.();
-    });
+      // Let notifications already on their way finish before the database closes.
+    }).then(() => push?.notifier.settle());
 
   return { server, close };
 }

@@ -5,16 +5,28 @@ import { Auth } from '../server/auth.js';
 import { HistoryStore } from '../server/history.js';
 import { createApp } from '../server/app.js';
 import { loadConfig } from '../server/config.js';
+import { PushStore, Notifier, loadVapidKeys } from '../server/push.js';
 
 export const silentLog = { warn() {}, error() {}, log() {} };
 
-export async function startServer(env = {}) {
+/**
+ * Starts the app on a random port. `push.allowEndpoint` lets tests point
+ * subscriptions at a local stand-in for a push service.
+ */
+export async function startServer(env = {}, { push: pushOptions = {} } = {}) {
   const config = loadConfig({ PEOPLE: 'Cody:Aldi,Jess:M&S', STORES: 'Aldi,M&S', ...env });
   const db = openDatabase(':memory:');
   const list = new ListStore(db);
   const history = new HistoryStore(db);
   const auth = new Auth({ passcode: config.passcode, secret: 'test-secret', sessionDays: 1 });
-  const { server, close } = createApp({ config, list, history, auth, log: silentLog });
+  const pushStore = new PushStore(db);
+  const notifier = new Notifier({
+    store: pushStore,
+    vapid: { ...loadVapidKeys(list), subject: config.pushContact },
+    log: silentLog,
+  });
+  const push = { store: pushStore, notifier, allowEndpoint: pushOptions.allowEndpoint };
+  const { server, close } = createApp({ config, list, history, auth, push, log: silentLog });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();
@@ -24,6 +36,7 @@ export async function startServer(env = {}) {
     list,
     history,
     auth,
+    push,
     async stop() {
       await close();
       db.close();
