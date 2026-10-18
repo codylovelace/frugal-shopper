@@ -41,6 +41,55 @@ export const MIGRATIONS = [
   `,
   // How many of an item to buy. Quoted prices are per pack; the bought price is the total paid.
   `ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1;`,
+  // Who needs each item and how many. An item needed by more than one person
+  // shows under "Both need"; its quantity is the sum of everyone's needs.
+  // Items that look alike but were kept apart remember it in merge_dismissals.
+  `
+  CREATE TABLE item_needs (
+    item_id  TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    person   TEXT NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity >= 1),
+    PRIMARY KEY (item_id, person)
+  );
+  INSERT INTO item_needs (item_id, person, quantity) SELECT id, created_by, quantity FROM items;
+  ALTER TABLE items DROP COLUMN quantity;
+  CREATE TABLE merge_dismissals (
+    item_a TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    item_b TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    PRIMARY KEY (item_a, item_b)
+  );
+  `,
+  // Finished shopping trips. Each keeps a copy of what was bought and every
+  // shop's price for it, so you can look back at what was cheapest where.
+  `
+  CREATE TABLE trips (
+    id          INTEGER PRIMARY KEY,
+    finished_at INTEGER NOT NULL,
+    finished_by TEXT NOT NULL
+  );
+  CREATE INDEX trips_finished_at ON trips(finished_at);
+  CREATE TABLE trip_items (
+    id                 INTEGER PRIMARY KEY,
+    trip_id            INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    name               TEXT NOT NULL,
+    note               TEXT NOT NULL DEFAULT '',
+    quantity           INTEGER NOT NULL,
+    needs              TEXT NOT NULL DEFAULT '{}',
+    bought_store       TEXT NOT NULL,
+    bought_price_pence INTEGER NOT NULL,
+    bought_by          TEXT NOT NULL,
+    bought_at          INTEGER NOT NULL
+  );
+  CREATE INDEX trip_items_trip ON trip_items(trip_id);
+  CREATE INDEX trip_items_name ON trip_items(name COLLATE NOCASE);
+  CREATE TABLE trip_quotes (
+    trip_item_id INTEGER NOT NULL REFERENCES trip_items(id) ON DELETE CASCADE,
+    store        TEXT NOT NULL,
+    price_pence  INTEGER,
+    size         TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (trip_item_id, store)
+  );
+  `,
 ];
 
 const OP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -65,7 +114,7 @@ function migrate(db) {
   }
 }
 
-function rowToItem(row, quoteRows) {
+function rowToItem(row, quoteRows, needRows = [], dismissed = []) {
   const quotes = {};
   for (const q of quoteRows) {
     quotes[q.store] = {
@@ -79,7 +128,9 @@ function rowToItem(row, quoteRows) {
     id: row.id,
     name: row.name,
     note: row.note,
-    quantity: row.quantity,
+    needs: Object.fromEntries(needRows.map((n) => [n.person, n.quantity])),
+    quantity: needRows.reduce((sum, n) => sum + n.quantity, 0),
+    keepSeparate: dismissed,
     sort: row.sort,
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -108,11 +159,20 @@ export class ListStore {
       itemQuotes: db.prepare('SELECT * FROM quotes WHERE item_id = ?'),
       nextSort: db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS next FROM items'),
       insertItem: db.prepare(
-        `INSERT INTO items (id, name, note, quantity, sort, created_at, created_by, updated_at)
-         VALUES (@id, @name, @note, @quantity, @sort, @now, @by, @now)`,
+        `INSERT INTO items (id, name, note, sort, created_at, created_by, updated_at)
+         VALUES (@id, @name, @note, @sort, @now, @by, @now)`,
       ),
+      allNeeds: db.prepare('SELECT * FROM item_needs ORDER BY rowid'),
+      itemNeeds: db.prepare('SELECT * FROM item_needs WHERE item_id = ? ORDER BY rowid'),
+      setNeed: db.prepare(
+        `INSERT INTO item_needs (item_id, person, quantity) VALUES (?, ?, ?)
+         ON CONFLICT (item_id, person) DO UPDATE SET quantity = excluded.quantity`,
+      ),
+      deleteNeed: db.prepare('DELETE FROM item_needs WHERE item_id = ? AND person = ?'),
+      allDismissals: db.prepare('SELECT * FROM merge_dismissals'),
+      itemDismissals: db.prepare('SELECT * FROM merge_dismissals WHERE item_a = ? OR item_b = ?'),
+      dismiss: db.prepare('INSERT OR IGNORE INTO merge_dismissals (item_a, item_b) VALUES (?, ?)'),
       updateItem: db.prepare('UPDATE items SET name = @name, note = @note, updated_at = @now WHERE id = @id'),
-      setQuantity: db.prepare('UPDATE items SET quantity = @quantity, updated_at = @now WHERE id = @id'),
       touch: db.prepare('UPDATE items SET updated_at = ? WHERE id = ?'),
       upsertQuote: db.prepare(
         `INSERT INTO quotes (item_id, store, price_pence, size, updated_by, updated_at)
@@ -150,28 +210,88 @@ export class ListStore {
   }
 
   listItems() {
-    const quotesByItem = new Map();
-    for (const q of this.stmt.allQuotes.all()) {
-      if (!quotesByItem.has(q.item_id)) quotesByItem.set(q.item_id, []);
-      quotesByItem.get(q.item_id).push(q);
+    const group = (rows, key) => {
+      const map = new Map();
+      for (const r of rows) {
+        if (!map.has(r[key])) map.set(r[key], []);
+        map.get(r[key]).push(r);
+      }
+      return map;
+    };
+    const quotes = group(this.stmt.allQuotes.all(), 'item_id');
+    const needs = group(this.stmt.allNeeds.all(), 'item_id');
+    const dismissed = new Map();
+    for (const d of this.stmt.allDismissals.all()) {
+      if (!dismissed.has(d.item_a)) dismissed.set(d.item_a, []);
+      if (!dismissed.has(d.item_b)) dismissed.set(d.item_b, []);
+      dismissed.get(d.item_a).push(d.item_b);
+      dismissed.get(d.item_b).push(d.item_a);
     }
-    return this.stmt.allItems.all().map((row) => rowToItem(row, quotesByItem.get(row.id) || []));
+    return this.stmt.allItems
+      .all()
+      .map((row) =>
+        rowToItem(row, quotes.get(row.id) || [], needs.get(row.id) || [], dismissed.get(row.id) || []),
+      );
   }
 
   getItem(id) {
     const row = this.stmt.item.get(id);
-    return row ? rowToItem(row, this.stmt.itemQuotes.all(id)) : null;
+    if (!row) return null;
+    const dismissed = this.stmt.itemDismissals
+      .all(id, id)
+      .map((d) => (d.item_a === id ? d.item_b : d.item_a));
+    return rowToItem(row, this.stmt.itemQuotes.all(id), this.stmt.itemNeeds.all(id), dismissed);
   }
 
-  addItem({ id, name, note, quantity = 1, by }) {
+  /** needs: { [person]: quantity } with at least one entry. */
+  addItem({ id, name, note, needs, by }) {
     const sort = this.stmt.nextSort.get().next;
-    this.stmt.insertItem.run({ id, name, note, quantity, sort, by, now: this.now() });
+    this.stmt.insertItem.run({ id, name, note, sort, by, now: this.now() });
+    for (const [person, quantity] of Object.entries(needs)) this.stmt.setNeed.run(id, person, quantity);
     return this.getItem(id);
   }
 
-  setQuantity(id, quantity) {
-    this.stmt.setQuantity.run({ id, quantity, now: this.now() });
+  /** Set how many `person` needs; 0 removes them from the item. */
+  setNeed(id, person, quantity) {
+    if (quantity > 0) this.stmt.setNeed.run(id, person, quantity);
+    else this.stmt.deleteNeed.run(id, person);
+    this.stmt.touch.run(this.now(), id);
     return this.getItem(id);
+  }
+
+  /**
+   * Fold item `fromId` into `intoId`: needs are added together, prices the
+   * target lacks are copied over, and `fromId` is deleted.
+   */
+  mergeItems(fromId, intoId) {
+    const from = this.getItem(fromId);
+    const into = this.getItem(intoId);
+    for (const [person, quantity] of Object.entries(from.needs)) {
+      this.stmt.setNeed.run(intoId, person, (into.needs[person] || 0) + quantity);
+    }
+    const now = this.now();
+    for (const [store, q] of Object.entries(from.quotes)) {
+      if (into.quotes[store]) continue;
+      this.stmt.upsertQuote.run({
+        id: intoId,
+        store,
+        pricePence: q.pricePence,
+        size: q.size,
+        by: q.updatedBy,
+        now,
+      });
+    }
+    if (from.note && !into.note)
+      this.stmt.updateItem.run({ id: intoId, name: into.name, note: from.note, now });
+    this.stmt.deleteItem.run(fromId);
+    this.stmt.touch.run(now, intoId);
+    return this.getItem(intoId);
+  }
+
+  /** Remember that two look-alike items are different, so the merge suggestion stops. */
+  keepSeparate(a, b) {
+    const [x, y] = a < b ? [a, b] : [b, a];
+    this.stmt.dismiss.run(x, y);
   }
 
   updateItem(id, { name, note }) {

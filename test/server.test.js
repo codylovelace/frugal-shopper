@@ -127,7 +127,7 @@ test('database migrations are recorded and re-opening is safe', async (t) => {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'nested', 'db.sqlite');
   let db = openDatabase(file);
-  new ListStore(db).addItem({ id: ID1, name: 'Milk', note: '', by: 'Cody' });
+  new ListStore(db).addItem({ id: ID1, name: 'Milk', note: '', needs: { Cody: 1 }, by: 'Cody' });
   assert.equal(db.pragma('user_version', { simple: true }), MIGRATIONS.length);
   db.close();
   db = openDatabase(file);
@@ -158,21 +158,117 @@ test('an existing database from the first version gains quantity 1 on every item
   assert.equal(new ListStore(db).getItem(ID1).quantity, 1);
 });
 
-test('ops: quantity defaults to 1, can be set on add and changed later', () => {
+test('ops: quantity defaults to 1 and each person sets their own share', () => {
   const list = freshList();
   applyOp(list, config, { kind: 'add', id: ID1, name: 'Milk' }, 'Cody');
+  assert.deepEqual(list.getItem(ID1).needs, { Cody: 1 });
   assert.equal(list.getItem(ID1).quantity, 1);
   applyOp(list, config, { kind: 'add', id: ID2, name: 'Eggs', quantity: 3 }, 'Cody');
   assert.equal(list.getItem(ID2).quantity, 3);
-  applyOp(list, config, { kind: 'quantity', id: ID1, quantity: 4 }, 'Jess');
-  assert.equal(list.getItem(ID1).quantity, 4);
-  for (const bad of [0, 100, 1.5, '2', null]) {
+
+  applyOp(list, config, { kind: 'quantity', id: ID1, quantity: 4 }, 'Cody');
+  assert.deepEqual(list.getItem(ID1).needs, { Cody: 4 });
+  // Jess adds herself, which makes it a "both need" item with a summed quantity.
+  applyOp(list, config, { kind: 'quantity', id: ID1, quantity: 1 }, 'Jess');
+  assert.deepEqual(list.getItem(ID1).needs, { Cody: 4, Jess: 1 });
+  assert.equal(list.getItem(ID1).quantity, 5);
+  // Either phone can change the other person's share.
+  applyOp(list, config, { kind: 'quantity', id: ID1, person: 'Jess', quantity: 2 }, 'Cody');
+  assert.deepEqual(list.getItem(ID1).needs, { Cody: 4, Jess: 2 });
+  // 0 removes a person while someone else still needs it...
+  applyOp(list, config, { kind: 'quantity', id: ID1, quantity: 0 }, 'Cody');
+  assert.deepEqual(list.getItem(ID1).needs, { Jess: 2 });
+  // ...but the last person can't drop to 0.
+  assert.throws(
+    () => applyOp(list, config, { kind: 'quantity', id: ID1, quantity: 0 }, 'Jess'),
+    /delete the item/,
+  );
+
+  for (const bad of [100, 1.5, '2', null, -1]) {
     assert.throws(() => applyOp(list, config, { kind: 'quantity', id: ID1, quantity: bad }, 'Jess'), OpError);
   }
+  assert.throws(
+    () => applyOp(list, config, { kind: 'quantity', id: ID1, person: 'Mallory', quantity: 1 }, 'Jess'),
+    /unknown person/,
+  );
   assert.throws(
     () => applyOp(list, config, { kind: 'add', id: 'item-0000003', name: 'X', quantity: 0 }, 'Cody'),
     OpError,
   );
+});
+
+test('ops: importing the same item twice combines the quantities (the oats example)', () => {
+  const list = freshList();
+  applyOp(list, config, { kind: 'add', id: ID1, name: '500g Oats', quantity: 2 }, 'Cody');
+  // Jess imports her list: same item, written differently.
+  const r = applyOp(list, config, { kind: 'add', id: ID2, name: '500 g oats', quantity: 1 }, 'Jess');
+  assert.equal(r.mergedInto, ID1);
+  assert.deepEqual(
+    list.listItems().map((i) => [i.name, i.needs, i.quantity]),
+    [['500g Oats', { Cody: 2, Jess: 1 }, 3]],
+  );
+  // Adding it again for the same person tops up their share.
+  applyOp(list, config, { kind: 'add', id: 'item-0000003', name: 'oats 500g', quantity: 1 }, 'Cody');
+  assert.deepEqual(list.getItem(ID1).needs, { Cody: 3, Jess: 1 });
+  // Something added for someone else goes on their list.
+  applyOp(list, config, { kind: 'add', id: 'item-0000004', name: 'Bread', for: 'Jess' }, 'Cody');
+  assert.deepEqual(list.getItem('item-0000004').needs, { Jess: 1 });
+});
+
+test('ops: a bought item is not merged into; a new line is added instead', () => {
+  const list = freshList();
+  applyOp(list, config, { kind: 'add', id: ID1, name: 'Milk' }, 'Cody');
+  applyOp(list, config, { kind: 'buy', id: ID1, store: 'Aldi', pricePence: 99 }, 'Cody');
+  applyOp(list, config, { kind: 'add', id: ID2, name: 'milk' }, 'Jess');
+  assert.equal(list.listItems().length, 2);
+});
+
+test('ops: merge look-alike items, or remember to keep them apart', () => {
+  const list = freshList();
+  applyOp(list, config, { kind: 'add', id: ID1, name: '500g oats', quantity: 2 }, 'Cody');
+  applyOp(list, config, { kind: 'add', id: ID2, name: '500g rolled oats', quantity: 1 }, 'Jess');
+  applyOp(list, config, { kind: 'quote', id: ID2, store: 'M&S', pricePence: 150, size: '500g' }, 'Jess');
+  assert.equal(list.listItems().length, 2, 'near matches are not merged automatically');
+
+  const r = applyOp(list, config, { kind: 'merge', id: ID2, intoId: ID1 }, 'Cody');
+  assert.deepEqual(r.deleted, [ID2]);
+  const merged = list.getItem(ID1);
+  assert.deepEqual(merged.needs, { Cody: 2, Jess: 1 });
+  assert.equal(merged.quotes['M&S'].pricePence, 150, 'prices carry over');
+  assert.equal(list.getItem(ID2), null);
+
+  applyOp(list, config, { kind: 'add', id: 'item-0000003', name: 'Milk' }, 'Cody');
+  applyOp(list, config, { kind: 'add', id: 'item-0000004', name: 'Oat milk' }, 'Jess');
+  applyOp(list, config, { kind: 'keepSeparate', id: 'item-0000004', otherId: 'item-0000003' }, 'Jess');
+  assert.deepEqual(list.getItem('item-0000003').keepSeparate, ['item-0000004']);
+  assert.deepEqual(list.listItems().find((i) => i.id === 'item-0000004').keepSeparate, ['item-0000003']);
+  assert.throws(() => applyOp(list, config, { kind: 'merge', id: ID1, intoId: ID1 }, 'Cody'), OpError);
+});
+
+test("an existing database from the second version keeps quantities as the creator's need", async (t) => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { default: Database } = await import('better-sqlite3');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'v2.sqlite');
+  const old = new Database(file);
+  old.exec(MIGRATIONS[0]);
+  old.exec(MIGRATIONS[1]);
+  old.pragma('user_version = 2');
+  old
+    .prepare(
+      `INSERT INTO items (id, name, note, quantity, sort, created_at, created_by, updated_at)
+       VALUES ('item-0000001', 'Milk', '', 3, 1, 0, 'Jess', 0)`,
+    )
+    .run();
+  old.close();
+  const db = openDatabase(file);
+  t.after(() => db.close());
+  const item = new ListStore(db).getItem(ID1);
+  assert.deepEqual(item.needs, { Jess: 3 });
+  assert.equal(item.quantity, 3);
 });
 
 test('realtime: a tick on one phone shows up on the other', async (t) => {
@@ -386,4 +482,114 @@ test('behind a reverse proxy with TRUST_PROXY, the cookie is marked Secure', asy
   });
   assert.equal(res.status, 200);
   assert.match(res.headers.get('set-cookie'), /Secure/);
+});
+
+test('history: finishing a shop saves the ticked items by date and keeps the rest', async () => {
+  const { HistoryStore } = await import('../server/history.js');
+  const db = openDatabase(':memory:');
+  let now = Date.UTC(2026, 9, 18, 10);
+  const list = new ListStore(db, { now: () => now });
+  const history = new HistoryStore(db, { now: () => now });
+  const op = (o, by = 'Cody') => applyOp(list, config, o, by, history);
+
+  op({ kind: 'add', id: ID1, name: '500g oats', quantity: 2 });
+  op({ kind: 'add', id: ID2, name: '500g oats' }, 'Jess');
+  op({ kind: 'quote', id: ID1, store: 'Aldi', pricePence: 89, size: '500g' });
+  op({ kind: 'quote', id: ID1, store: 'M&S', pricePence: 150, size: '500g' }, 'Jess');
+  op({ kind: 'buy', id: ID1, store: 'Aldi', pricePence: 267 });
+  op({ kind: 'add', id: 'item-0000003', name: 'Bread' }, 'Jess');
+
+  assert.throws(() => op({ kind: 'finishTrip', ids: ['item-0000003'] }), /nothing ticked/);
+  const r = op({ kind: 'finishTrip', ids: [ID1, 'item-0000003'] });
+  assert.deepEqual(r.deleted, [ID1], 'only ticked items are saved and removed');
+  assert.equal(r.historyChanged, true);
+  assert.deepEqual(
+    list.listItems().map((i) => i.name),
+    ['Bread'],
+  );
+
+  const [trip] = history.listTrips();
+  assert.deepEqual(trip, {
+    id: r.tripId,
+    finishedAt: now,
+    finishedBy: 'Cody',
+    itemCount: 1,
+    spent: { Aldi: 267 },
+  });
+  const detail = history.getTrip(r.tripId);
+  assert.equal(detail.items[0].name, '500g oats');
+  assert.deepEqual(detail.items[0].needs, { Cody: 2, Jess: 1 });
+  assert.equal(detail.items[0].quantity, 3);
+  assert.deepEqual(detail.items[0].quotes, {
+    Aldi: { pricePence: 89, size: '500g' },
+    'M&S': { pricePence: 150, size: '500g' },
+  });
+  assert.deepEqual(detail.items[0].bought.store, 'Aldi');
+
+  // A week later, oats again but M&S is cheaper.
+  now += 7 * 24 * 60 * 60 * 1000;
+  op({ kind: 'add', id: 'item-0000004', name: 'Oats 500 g' }, 'Jess');
+  op({ kind: 'quote', id: 'item-0000004', store: 'M&S', pricePence: 80, size: '500g' }, 'Jess');
+  op({ kind: 'buy', id: 'item-0000004', store: 'M&S', pricePence: 80 }, 'Jess');
+  op({ kind: 'finishTrip', ids: ['item-0000004'] }, 'Jess');
+
+  const past = history.itemHistory('500G OATS');
+  assert.deepEqual(
+    past.map((e) => [e.bought.store, e.bought.pricePence]),
+    [
+      ['M&S', 80],
+      ['Aldi', 267],
+    ],
+  );
+  const last = history.lastSeen();
+  assert.equal(Object.keys(last).length, 1, 'both spellings count as one item');
+  assert.equal(Object.values(last)[0].bought.store, 'M&S');
+
+  assert.equal(history.listTrips().length, 2);
+  op({ kind: 'deleteTrip', tripId: r.tripId });
+  assert.equal(history.listTrips().length, 1);
+  assert.equal(history.getTrip(r.tripId), null);
+  assert.throws(() => op({ kind: 'deleteTrip', tripId: 'x' }), OpError);
+  db.close();
+});
+
+test('history: API needs sign-in and finishing a shop notifies both phones', async (t) => {
+  const srv = await startServer({ APP_PASSCODE: 'beefmince' });
+  t.after(() => srv.stop());
+  for (const path of ['/api/history', '/api/history/1', '/api/history/item?name=milk', '/api/last-seen']) {
+    assert.equal((await fetch(`${srv.base}${path}`)).status, 401, path);
+  }
+  const login = await fetch(`${srv.base}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passcode: 'beefmince' }),
+  });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const get = (path) => fetch(`${srv.base}${path}`, { headers: { cookie } });
+
+  const cody = await connectClient(srv.wsUrl, { headers: { cookie } });
+  const jess = await connectClient(srv.wsUrl, { headers: { cookie } });
+  t.after(() => {
+    cody.close();
+    jess.close();
+  });
+  await cody.nextType('state');
+  await jess.nextType('state');
+  cody.send({ type: 'identify', person: 'Cody', store: 'Aldi' });
+  await cody.nextType('presence');
+  const send = (opId, op) => cody.send({ type: 'op', opId, op });
+  send('op-00000001', { kind: 'add', id: ID1, name: 'Milk' });
+  send('op-00000002', { kind: 'buy', id: ID1, store: 'Aldi', pricePence: 99 });
+  send('op-00000003', { kind: 'finishTrip', ids: [ID1] });
+  const note = await jess.nextType('history');
+  assert.equal(note.by, 'Cody');
+  assert.equal(note.finished.count, 1);
+
+  const { trips } = await (await get('/api/history')).json();
+  assert.equal(trips.length, 1);
+  assert.equal((await (await get(`/api/history/${trips[0].id}`)).json()).items[0].name, 'Milk');
+  assert.equal((await get('/api/history/999')).status, 404);
+  assert.equal((await (await get('/api/history/item?name=MILK')).json()).entries.length, 1);
+  assert.equal((await get('/api/history/item?name=')).status, 400);
+  assert.deepEqual(Object.keys((await (await get('/api/last-seen')).json()).items), ['milk']);
 });

@@ -40,26 +40,27 @@ test('cleanLine truncates very long lines to the item name limit', () => {
   assert.equal(cleanLine('x'.repeat(150)).length, 100);
 });
 
-test('parsePastedList splits lines, drops blanks and duplicates', () => {
-  const text = '- [ ] Milk\r\n\n☐ Bread\nmilk\n  \n• Eggs\n- [x] Bread\n';
+test('parsePastedList splits lines, drops blanks and combines repeats', () => {
+  const text = '- [ ] Milk\r\n\n☐ Bread\nmilk\n  \n• Eggs\n- [x] Breads\n';
   assert.deepEqual(parsePastedList(text), {
     items: [
-      { name: 'Milk', quantity: 1 },
-      { name: 'Bread', quantity: 1 },
+      { name: 'Milk', quantity: 2 },
+      { name: 'Bread', quantity: 2 },
       { name: 'Eggs', quantity: 1 },
     ],
-    skipped: 2,
+    combined: 2,
+    merging: 0,
     truncated: false,
   });
 });
 
-test('parsePastedList skips items already on the list', () => {
-  const r = parsePastedList('Milk\nBread\nJam', ['bread', 'Butter']);
+test('parsePastedList counts lines that will top up items already on the list', () => {
+  const r = parsePastedList('Milk\n500 g oats\nJam', ['500g Oats', 'Butter']);
   assert.deepEqual(
     r.items.map((i) => i.name),
-    ['Milk', 'Jam'],
+    ['Milk', '500 g oats', 'Jam'],
   );
-  assert.equal(r.skipped, 1);
+  assert.equal(r.merging, 1);
 });
 
 test('parsePastedList caps a huge paste', () => {
@@ -70,8 +71,8 @@ test('parsePastedList caps a huge paste', () => {
 });
 
 test('parsePastedList copes with empty input', () => {
-  assert.deepEqual(parsePastedList(''), { items: [], skipped: 0, truncated: false });
-  assert.deepEqual(parsePastedList(null), { items: [], skipped: 0, truncated: false });
+  assert.deepEqual(parsePastedList(''), { items: [], combined: 0, merging: 0, truncated: false });
+  assert.deepEqual(parsePastedList(null), { items: [], combined: 0, merging: 0, truncated: false });
 });
 
 test('splitQuantity reads "2x milk" and "milk x2" style quantities', () => {
@@ -95,11 +96,11 @@ test('splitQuantity reads "2x milk" and "milk x2" style quantities', () => {
   }
 });
 
-test('parsePastedList carries quantities and dedupes on the name alone', () => {
+test('parsePastedList carries quantities and adds up repeats', () => {
   const r = parsePastedList('- [ ] 2x Milk\n☐ Bread x3\nmilk');
   assert.deepEqual(r.items, [
-    { name: 'Milk', quantity: 2 },
+    { name: 'Milk', quantity: 3 },
     { name: 'Bread', quantity: 3 },
   ]);
-  assert.equal(r.skipped, 1);
+  assert.equal(r.combined, 1);
 });

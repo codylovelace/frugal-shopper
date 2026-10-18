@@ -24,6 +24,7 @@
       </div>
       <div class="topbar-row small">
         <button id="whoami" class="chip" type="button" hidden></button>
+        <button id="history-open" class="chip" type="button" hidden>History</button>
         <span id="online" class="online"></span>
       </div>
     </header>
@@ -72,14 +73,26 @@
         </nav>
 
         <div id="store-header" class="store-header" aria-hidden="true"></div>
-        <ul id="todo" class="items" aria-label="Still to buy"></ul>
+        <div id="todo"></div>
         <p id="empty" class="empty-list" hidden></p>
 
         <section id="basket-section" hidden>
           <h2 class="section-title">In the basket</h2>
           <ul id="basket" class="items" aria-label="Bought"></ul>
-          <button id="clear-bought" class="secondary" type="button">Clear ticked items</button>
+          <button id="finish-shop" class="primary" type="button">Finish this shop</button>
+          <p class="hint">
+            Saves what's ticked off under today's date in History and clears it. Unticked items stay on the
+            list.
+          </p>
         </section>
+      </section>
+
+      <section id="history" hidden>
+        <div class="history-bar">
+          <button id="history-back" class="secondary" type="button">‹ Back</button>
+          <h2 id="history-title">History</h2>
+        </div>
+        <div id="history-body"></div>
       </section>
     </main>
 
@@ -128,6 +141,10 @@
         <input id="edit-name" maxlength="100" autocomplete="off" />
         <label for="edit-note">Note</label>
         <input id="edit-note" maxlength="200" autocomplete="off" placeholder="e.g. get the 750g pack" />
+        <fieldset>
+          <legend>Who needs it</legend>
+          <div id="edit-needs" class="needs-grid"></div>
+        </fieldset>
         <p id="edit-error" class="error" role="alert"></p>
         <div class="dialog-actions">
           <button value="delete" class="danger-link" type="submit">Delete item</button>
@@ -144,6 +161,10 @@
           One item per line. Ticks, bullets and numbers are removed, and "2x Milk" or "Milk x2" sets the
           quantity.
         </p>
+        <fieldset>
+          <legend>Whose list is it?</legend>
+          <div id="paste-for" class="choice-grid"></div>
+        </fieldset>
         <label for="paste-text">Items</label>
         <textarea
           id="paste-text"

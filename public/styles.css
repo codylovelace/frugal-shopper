@@ -460,11 +460,6 @@ button:disabled {
   margin-top: 24px;
 }
 
-#clear-bought {
-  margin-top: 12px;
-  width: 100%;
-}
-
 .empty-list {
   text-align: center;
   color: var(--muted);
@@ -610,4 +605,140 @@ textarea {
 .quote-line {
   font-size: 12px;
   font-weight: 600;
+}
+
+.list-section + .list-section {
+  margin-top: 4px;
+}
+
+.list-section .section-title {
+  margin: 16px 0 8px;
+  font-size: 16px;
+}
+
+.section-title .count {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.needs-line {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 8px 0 0 44px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--mine);
+  font-size: 14px;
+}
+
+.suggest button {
+  min-height: 32px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.suggest-yes {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.suggest-no {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.needs-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.needs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.needs-name {
+  font-weight: 600;
+}
+
+.last-time {
+  display: block;
+  margin: 6px 0 0 44px;
+  min-height: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  text-decoration: underline dotted;
+}
+
+#finish-shop {
+  margin-top: 12px;
+  width: 100%;
+}
+
+.history-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.history-bar h2 {
+  margin: 0;
+}
+
+.trip-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.history-table th,
+.history-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.history-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cheapest-cell {
+  background: var(--cheap-bg);
+  font-weight: 700;
+}
+
+.bought-mark {
+  color: var(--cheap);
+}
+
+#history .danger-link {
+  margin-top: 16px;
 }

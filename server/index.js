@@ -3,6 +3,7 @@ import path from 'node:path';
 import { loadConfig, ConfigError } from './config.js';
 import { openDatabase, ListStore } from './db.js';
 import { Auth } from './auth.js';
+import { HistoryStore } from './history.js';
 import { createApp } from './app.js';
 
 let config;
@@ -31,6 +32,7 @@ try {
   throw err;
 }
 const list = new ListStore(db);
+const history = new HistoryStore(db);
 
 // Without SESSION_SECRET, generate one and keep it in the database so
 // sign-ins survive container restarts and image updates.
@@ -41,7 +43,7 @@ if (!secret) {
 }
 
 const auth = new Auth({ passcode: config.passcode, secret, sessionDays: config.sessionDays });
-const { server, close } = createApp({ config, list, auth });
+const { server, close } = createApp({ config, list, history, auth });
 
 server.listen(config.port, config.host, () => {
   console.log(`Frugal Shopper listening on http://${config.host}:${config.port}`);

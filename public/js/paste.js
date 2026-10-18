@@ -1,5 +1,7 @@
 // Turns a list pasted from a phone's notes app into item names.
 
+import { nameKey } from './match.js';
+
 export const MAX_ITEM_NAME = 100;
 export const MAX_PASTED_ITEMS = 200;
 export const MAX_QUANTITY = 99;
@@ -20,8 +22,6 @@ export function cleanLine(line) {
   return text.slice(0, MAX_ITEM_NAME).trim();
 }
 
-const key = (name) => name.toLowerCase();
-
 // "2x Milk", "2 x Milk", "2 × Milk": the name must not start with a digit, so
 // "4 x 330ml Coke" stays a pack size rather than becoming four of "330ml Coke".
 const LEADING_QTY_RE = /^(\d{1,2})\s*[x×]\s*(?=[^\d\s])(.+)$/iu;
@@ -40,25 +40,32 @@ export function splitQuantity(text) {
 
 /**
  * Split pasted text into items: one per line, markers stripped, "2x" style
- * quantities picked out, blank lines dropped, and duplicates removed both
- * within the paste and against `existingNames` (items already on the list).
- * Returns { items: [{ name, quantity }], skipped, truncated } where skipped
- * counts duplicates left out and truncated says the paste was over the limit.
+ * quantities picked out and blank lines dropped. A line repeating an earlier
+ * one (same item, however it's written) adds its quantity to that one.
+ * `existingNames` are the open items already on the list; lines matching them
+ * are counted in `merging`, because adding them tops up the existing item.
+ * Returns { items: [{ name, quantity }], combined, merging, truncated }.
  */
 export function parsePastedList(text, existingNames = []) {
-  const seen = new Set(existingNames.map(key));
-  const items = [];
-  let skipped = 0;
+  const existing = new Set(existingNames.map(nameKey));
+  const byKey = new Map();
+  let combined = 0;
   for (const line of String(text ?? '').split(/\r\n|\r|\n|\u2028|\u2029/)) {
     const cleaned = cleanLine(line);
     if (!cleaned) continue;
     const item = splitQuantity(cleaned);
-    if (seen.has(key(item.name))) {
-      skipped += 1;
+    const k = nameKey(item.name);
+    if (!k) continue;
+    const earlier = byKey.get(k);
+    if (earlier) {
+      earlier.quantity = Math.min(MAX_QUANTITY, earlier.quantity + item.quantity);
+      combined += 1;
       continue;
     }
-    seen.add(key(item.name));
-    items.push(item);
+    byKey.set(k, item);
   }
-  return { items: items.slice(0, MAX_PASTED_ITEMS), skipped, truncated: items.length > MAX_PASTED_ITEMS };
+  const all = [...byKey.values()];
+  const items = all.slice(0, MAX_PASTED_ITEMS);
+  const merging = items.filter((i) => existing.has(nameKey(i.name))).length;
+  return { items, combined, merging, truncated: all.length > MAX_PASTED_ITEMS };
 }

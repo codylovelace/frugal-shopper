@@ -2,6 +2,7 @@ import { once } from 'node:events';
 import WebSocket from 'ws';
 import { openDatabase, ListStore } from '../server/db.js';
 import { Auth } from '../server/auth.js';
+import { HistoryStore } from '../server/history.js';
 import { createApp } from '../server/app.js';
 import { loadConfig } from '../server/config.js';
 
@@ -11,8 +12,9 @@ export async function startServer(env = {}) {
   const config = loadConfig({ PEOPLE: 'Cody:Aldi,Jess:M&S', STORES: 'Aldi,M&S', ...env });
   const db = openDatabase(':memory:');
   const list = new ListStore(db);
+  const history = new HistoryStore(db);
   const auth = new Auth({ passcode: config.passcode, secret: 'test-secret', sessionDays: 1 });
-  const { server, close } = createApp({ config, list, auth, log: silentLog });
+  const { server, close } = createApp({ config, list, history, auth, log: silentLog });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();
@@ -20,6 +22,7 @@ export async function startServer(env = {}) {
     base: `http://127.0.0.1:${port}`,
     wsUrl: `ws://127.0.0.1:${port}/ws`,
     list,
+    history,
     auth,
     async stop() {
       await close();
