@@ -9,18 +9,33 @@ Built for Cody at Aldi and Jess at M&S, but the shops and people are settings.
 ## How it works in the shop
 
 1. Open the site on both phones, enter the passcode once, pick who you are and which shop you're in.
-2. Either of you adds items to the list.
-3. Tap your shop's box on an item to enter the price and pack size (e.g. `7.59` and `750g`). The other phone
+2. Either of you adds items to the list. To bring over a list from your phone's notes, tap **Paste a list from
+   Notes** (or just paste several lines into the add box) and pick whose list it is: one item per line, with
+   checkboxes, bullets and numbering removed. `2x Milk` or `Milk x2` sets the quantity (`4 x 330ml Coke` is
+   read as a pack size, not four Cokes), and the **− / +** buttons on each item change it.
+3. The list is split into **Both need**, **My list** and the other person's list. When you both add the same
+   item (however it's written: `500 g Oats` and `oats 500g` are the same), it moves to **Both need** with
+   your quantities added up and a line such as `Cody 2 · Jess 1`. Items that only look alike, like
+   `500g oats` and `500g rolled oats`, get a **Same as …? Combine / Keep separate** prompt rather than being
+   merged on their own. In **Both need** the − / + buttons change your own share; tap the item name to
+   change anyone's.
+4. Tap your shop's box on an item to enter the price and pack size (e.g. `7.59` and `750g`). The other phone
    sees it instantly, so you don't need to send prices to each other in a chat.
-4. The cheaper shop is highlighted. With pack sizes filled in, it compares per kg, litre or item, so a 500g
+5. The cheaper shop is highlighted. With pack sizes filled in, it compares per kg, litre or item, so a 500g
    pack and a 1kg pack are compared fairly. If only one side has a size you get a warning instead of a
    misleading answer.
-5. Whoever is in the cheaper shop taps the tick box, confirms the price paid (it's pre-filled from the price
-   they entered) and it moves to **In the basket** on both phones, with a pop-up on the other phone saying
+6. Whoever is in the cheaper shop taps the tick box, confirms the price paid (pre-filled from the price they
+   entered, times the quantity) and it moves to **In the basket** on both phones, with a pop-up on the other phone saying
    who bought what and where.
-6. The bar at the bottom shows what's been spent in each shop, the total, how much you saved compared with
+7. The bar at the bottom shows what's been spent in each shop, the total, how much you saved compared with
    the other shop, and how many items are left.
-7. When you're done, **Clear ticked items** empties the basket for the next shop.
+8. When you're done, **Finish this shop** saves what you bought, with both shops' prices, to **History** under
+   today's date and empties the basket. Anything not ticked stays on the list for next time.
+
+**History** (top of the screen) lists each finished shop with what was spent where. Tap a shop to see each
+item with its prices, and tap an item to see every time you've bought it and which shop was cheapest each
+time. When you add an item you've bought before, it shows last time's prices under it, e.g.
+`Last time (18 Oct): Aldi £0.89 · M&S £1.50, bought at Aldi`.
 
 Filters at the top show **Cheapest here** (what you should pick up in your shop) and **Needs my price** (what
 you still need to look up).

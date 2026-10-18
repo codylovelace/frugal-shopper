@@ -94,7 +94,7 @@ function readJson(req, limit = 4096) {
   });
 }
 
-export function createApp({ config, list, auth, log = console }) {
+export function createApp({ config, list, history, auth, log = console }) {
   const files = loadStaticFiles();
 
   const clientIp = (req) => {
@@ -173,6 +173,22 @@ export function createApp({ config, list, auth, log = console }) {
     if (url.pathname === '/api/items' && req.method === 'GET') {
       if (!auth.isAuthenticated(req)) return sendJson(res, 401, { error: 'Sign in first' });
       return sendJson(res, 200, { items: list.listItems() });
+    }
+    if (url.pathname.startsWith('/api/history') || url.pathname === '/api/last-seen') {
+      if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+      if (!auth.isAuthenticated(req)) return sendJson(res, 401, { error: 'Sign in first' });
+      if (url.pathname === '/api/history') return sendJson(res, 200, { trips: history.listTrips() });
+      if (url.pathname === '/api/last-seen') return sendJson(res, 200, { items: history.lastSeen() });
+      if (url.pathname === '/api/history/item') {
+        const name = (url.searchParams.get('name') || '').slice(0, 100);
+        if (!name.trim()) return sendJson(res, 400, { error: 'name is required' });
+        return sendJson(res, 200, { name, entries: history.itemHistory(name) });
+      }
+      const m = /^\/api\/history\/(\d{1,12})$/.exec(url.pathname);
+      if (m) {
+        const trip = history.getTrip(Number(m[1]));
+        return trip ? sendJson(res, 200, trip) : sendJson(res, 404, { error: 'No such shop' });
+      }
     }
     return sendJson(res, 404, { error: 'Not found' });
   }
@@ -299,7 +315,7 @@ export function createApp({ config, list, auth, log = console }) {
             // A client resends anything it did not see acknowledged, e.g.
             // after its connection dropped mid-shop. Apply each op only once.
             if (list.hasAppliedOp(msg.opId)) return null;
-            const r = applyOp(list, config, msg.op, ws.identity.person);
+            const r = applyOp(list, config, msg.op, ws.identity.person, history);
             list.recordOp(msg.opId);
             return r;
           });
@@ -312,6 +328,13 @@ export function createApp({ config, list, auth, log = console }) {
         }
         if (result && (result.items.length || result.deleted.length)) {
           broadcast({ type: 'changes', items: result.items, deleted: result.deleted });
+        }
+        if (result?.historyChanged) {
+          broadcast({
+            type: 'history',
+            by: ws.identity.person,
+            finished: result.tripId ? { tripId: result.tripId, count: result.deleted.length } : null,
+          });
         }
         return reply(ws, { type: 'ack', opId: msg.opId });
       }
